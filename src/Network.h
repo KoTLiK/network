@@ -70,13 +70,14 @@ namespace Net {
 
 
     class Protocol {
+        friend class Network;
+        friend class Server;
     protected:
         std::queue<std::string> container;
         std::string package;
         std::string delimiter;
-        unsigned delimiterLength;
-    public:
-        bool empty() { container.empty(); }
+        std::string currentMessage;
+        unsigned long delimiterLength;
 
         bool checkAndAppend(std::string &buffer, unsigned bytes) {
             package += std::string(buffer, bytes);
@@ -84,18 +85,39 @@ namespace Net {
         }
 
         void split() {
-            unsigned long nl;
+            unsigned long position;
             std::string temp;
-            while ((nl = package.find(delimiter.c_str(), 0, delimiterLength)) != std::string::npos) {
-                temp = package.substr(0, nl+2);
-                package = package.substr(nl+2);
+            while ((position = package.find(delimiter.c_str(), 0, delimiterLength)) != std::string::npos) {
+                temp = package.substr(0, position + delimiterLength);
+                package = package.substr(position + delimiterLength);
                 container.push(temp);
             }
         }
+    public:
+        Protocol(std::string &delimiter) { setDelimiter(delimiter); }
+        Protocol(std::string &delimiter, size_t length) { setDelimiter(delimiter, length); }
+        Protocol(const char * delimiter, size_t length) { setDelimiter(delimiter, length); }
 
-        void setDelimiter(std::string &delimiter) { this->delimiter = std::string(delimiter); }
-        void setDelimiter(std::string &delimiter, size_t length) { this->delimiter = std::string(delimiter, 0, length); }
-        void setDelimiter(const char * delimiter, size_t length) { this->delimiter = std::string(delimiter, length); }
+        bool empty() const { container.empty(); }
+
+        void setDelimiter(std::string &delimiter) {
+            this->delimiter = std::string(delimiter);
+            delimiterLength = delimiter.length();
+        }
+
+        void setDelimiter(std::string &delimiter, size_t length) {
+            this->delimiter = std::string(delimiter, 0, length);
+            delimiterLength = length;
+        }
+
+        void setDelimiter(const char * delimiter, size_t length) {
+            this->delimiter = std::string(delimiter, length);
+            delimiterLength = length;
+        }
+
+        std::string getCurrentMessage() const { return currentMessage; }
+        std::string front() { return (currentMessage = container.front()); }
+        void pop() { container.pop(); }
     };
 
 
@@ -195,6 +217,8 @@ namespace Net {
             else sendToMessage(message, socketDescriptor);
         }
 
+        void sendMessage(const std::string &message, int socket) const override { Network::sendMessage(message, socket); }
+
         void receiveFromMessage(Protocol &protocol, int socket) {
             if (protocol.empty()) {
                 int i;
@@ -209,16 +233,14 @@ namespace Net {
             protocol.split();
         }
 
-        void receiveMessage(Protocol& protocol) {
+        void receiveMessage(Protocol &protocol) {
             if (datagram == Datagram::TCP)
                 Network::receiveMessage(protocol, connection);
             else receiveFromMessage(protocol, socketDescriptor);
         }
 
-        const sockaddr_in6 *getClient() const { return &(client.ipv6()); }
-
-        void sendMessage(const std::string &message, int socket) const override { Network::sendMessage(message, socket); }
         void receiveMessage(Protocol &protocol, int socket) override { Network::receiveMessage(protocol, socket); }
+        const sockaddr_in6 *getClient() const { return &(client.ipv6()); }
     };
 
 
