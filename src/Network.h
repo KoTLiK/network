@@ -167,6 +167,8 @@ namespace Net {
                 throw NetworkException("Unable to convert my binary name.");
             return addr;
         }
+
+        Datagram getDatagram() const { return datagram; }
     };
 
 
