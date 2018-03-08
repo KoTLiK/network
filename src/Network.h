@@ -16,6 +16,7 @@
 #include <utility>
 #include <strings.h>
 #include <queue>
+#include <cstring>
 
 namespace Net {
 
@@ -37,7 +38,7 @@ namespace Net {
     };
 
 
-    struct Socket {
+    struct Socket { // TODO not sure if it is working as intended
         socklen_t& length() { return _length; }
         socklen_t* lengthPtr() { return &_length; }
         sockaddr* operator&() { return reinterpret_cast<sockaddr*>(&_socket); }
@@ -79,7 +80,7 @@ namespace Net {
         std::string currentMessage;
         unsigned long delimiterLength;
 
-        bool checkAndAppend(std::string &buffer, unsigned bytes) {
+        bool checkAndAppend(const char *buffer, unsigned bytes) {
             package += std::string(buffer, bytes);
             return package.find(delimiter.c_str(), 0, delimiterLength) != std::string::npos;
         }
@@ -126,36 +127,33 @@ namespace Net {
         int socketDescriptor{}, connection{}, error{};
         const Datagram datagram;
         const unsigned bufferSize;
-        std::string buffer;
+        char *buffer;
 
-        void clearBuffer() {
-            buffer.clear();
-            buffer.reserve(bufferSize + 1);
-        }
     public:
-        Network(Datagram d, unsigned bufferSize) : datagram{d}, bufferSize{bufferSize} {}
-        ~Network() { close(socketDescriptor); }
+        Network(Datagram d, unsigned bufferSize) : datagram{d}, bufferSize{bufferSize} { buffer = new char[bufferSize]; }
+        ~Network() { close(socketDescriptor); delete [] buffer; }
 
         virtual void sendMessage(const std::string &message, int socket) const {
             if (send(socket, message.c_str(), message.size(), 0) < 0)
                 throw NetworkException("Cannot send message.");
         }
 
-        virtual void receiveMessage(Protocol &protocol, int socket) {
+        virtual bool receiveMessage(Protocol &protocol, int socket) {
+            int i = 0;
             if (protocol.empty()) {
-                int i;
                 while (true) {
-                    clearBuffer();
-                    i = static_cast<int>(recv(socketDescriptor, &buffer[0], bufferSize, 0));
+                    bzero(buffer, bufferSize + 1);
+                    i = static_cast<int>(recv(socket, buffer, bufferSize, 0));
                     if (i == 0) break;
-                    else if (i < 0) throw NetworkException("Ooops. Receive goes wrong.");
+                    else if (i < 0) throw NetworkException("Ooops. Receive goes wrong." + std::string(strerror(errno)));
                     else if (protocol.checkAndAppend(buffer, static_cast<unsigned>(i))) break;
                 }
             }
             protocol.split();
+            return i != 0;
         }
 
-        std::string getCurrentIP(const int descriptor) {
+        static std::string getCurrentIP(const int descriptor) {
             Socket socket{};
             std::string addr;
 
@@ -174,20 +172,22 @@ namespace Net {
 
     class Server : public Network {
     private:
-        Socket server{}, client{};
+        //Socket server{}, client{};
+        struct sockaddr_in6 server, client;
+        socklen_t length;
     public:
-        explicit Server(Datagram d, unsigned bufferSize = Net::BUFFER_SIZE) : Network(d, bufferSize) {}
+        explicit Server(Datagram d, unsigned bufferSize = Net::BUFFER_SIZE) : Network(d, bufferSize), length{sizeof(client)} {}
 
-        void start(const std::string &hostname, const uint16_t port) {
+        void start(uint16_t port) {
             if ((socketDescriptor = socket(PF_INET6, static_cast<int>(datagram), 0)) < 0)
                 throw NetworkException("The socket cannot be created.");
 
             bzero(&server, sizeof(server));
-            server.ipv6().sin6_family = AF_INET6;
-            server.ipv6().sin6_addr = in6addr_any;
-            server.ipv6().sin6_port = htons(port);
+            server.sin6_family = AF_INET6;
+            server.sin6_addr = in6addr_any;
+            server.sin6_port = htons(port);
 
-            if (bind(socketDescriptor, &server, server.length()) < 0)
+            if (bind(socketDescriptor, (struct sockaddr*)&server, sizeof(server)) < 0)
                 throw NetworkException("Cannot bind...not enough mana.");
         }
 
@@ -197,7 +197,7 @@ namespace Net {
         }
 
         int openConnection() {
-            if ((connection = accept(socketDescriptor, &client, client.lengthPtr())) < 0)
+            if ((connection = accept(socketDescriptor, (struct sockaddr*)&client, &length)) < 0)
                 throw NetworkException("Challenge NOT accepted...nor the connection...");
             return connection;
         }
@@ -209,7 +209,7 @@ namespace Net {
         void closeConnection() const { closeConnection(connection); }
 
         void sendToMessage(const std::string &message, int socket) {
-            if (sendto(socket, message.c_str(), message.size(), 0, &client, client.length()) < 0)
+            if (sendto(socket, message.c_str(), message.size(), 0, (struct sockaddr*)&client, length) < 0)
                 throw NetworkException("Cannot send message.");
         }
 
@@ -219,37 +219,37 @@ namespace Net {
             else sendToMessage(message, socketDescriptor);
         }
 
-        void sendMessage(const std::string &message, int socket) const override { Network::sendMessage(message, socket); }
-
-        void receiveFromMessage(Protocol &protocol, int socket) {
+        bool receiveFromMessage(Protocol &protocol, int socket) {
+            int i = 0;
             if (protocol.empty()) {
-                int i;
                 while (true) {
-                    clearBuffer();
-                    i = static_cast<int>(recvfrom(socketDescriptor, &buffer[0], bufferSize, 0, &client, client.lengthPtr()));
+                    bzero(buffer, bufferSize + 1);
+                    i = static_cast<int>(recvfrom(socket, buffer, bufferSize, 0, (struct sockaddr*)&client, &length));
                     if (i == 0) break;
                     else if (i < 0) throw NetworkException("Ooops. Receive goes wrong.");
                     else if (protocol.checkAndAppend(buffer, static_cast<unsigned>(i))) break;
                 }
             }
             protocol.split();
+            return i != 0;
         }
 
-        void receiveMessage(Protocol &protocol) {
+        bool receiveMessage(Protocol &protocol) {
             if (datagram == Datagram::TCP)
-                Network::receiveMessage(protocol, connection);
-            else receiveFromMessage(protocol, socketDescriptor);
+                return Network::receiveMessage(protocol, connection);
+            else return receiveFromMessage(protocol, socketDescriptor); // TODO socketDescriptor is correct ?
         }
 
-        void receiveMessage(Protocol &protocol, int socket) override { Network::receiveMessage(protocol, socket); }
-        const sockaddr_in6 *getClient() const { return &(client.ipv6()); }
+        void sendMessage(const std::string &message, int socket) const override { Network::sendMessage(message, socket); }
+        bool receiveMessage(Protocol &protocol, int socket) override { return Network::receiveMessage(protocol, socket); }
+        const sockaddr_in6 *getClient() const { return &client; }
     };
 
 
     class Client : public Network {
     private:
         struct addrinfo hints;
-        struct addrinfo *result, *rp;
+        struct addrinfo *result;
     public:
         explicit Client(Datagram d, unsigned bufferSize = BUFFER_SIZE) : Network(d, bufferSize) {}
 
@@ -265,6 +265,7 @@ namespace Net {
         }
 
         void connectToServer() {
+            struct addrinfo *rp = nullptr;
             for (rp = result; rp != nullptr; rp = rp->ai_next) {
                 if ((socketDescriptor = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol)) < 0)
                     continue; // Try next one
@@ -284,7 +285,7 @@ namespace Net {
 
         int getSocketDescriptor() const { return socketDescriptor; }
         void sendMessage(const std::string &message) const { Network::sendMessage(message, socketDescriptor); }
-        void receiveMessage(Protocol &protocol) { Network::receiveMessage(protocol, socketDescriptor); }
+        bool receiveMessage(Protocol &protocol) { return Network::receiveMessage(protocol, socketDescriptor); }
     };
 }
 

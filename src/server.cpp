@@ -1,18 +1,26 @@
 #include <iostream>
+#include <csignal>
 
 #include "Network.h"
 
+Net::Server server(Net::Datagram::TCP);
+
+void signalHandler(int) {
+    server.stop();
+    std::cout << "\nShutting down...\n";
+    exit(0);
+}
+
 int main() {
     std::string input;
-    std::cin >> input;
 
-    Net::Server server(Net::Datagram::TCP);
+    signal(SIGINT, signalHandler);
 
-    std::string delimiter = "\n";
+    std::string delimiter = ".";
     Net::Protocol protocol(delimiter);
 
     try {
-        server.start("localhost", 6667);
+        server.start(8080);
         if (server.getDatagram() == Net::Datagram::TCP) {
             server.setListen(2);
 

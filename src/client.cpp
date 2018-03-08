@@ -4,24 +4,26 @@
 
 int main() {
     std::string input;
-    std::cin >> input;
 
     Net::Client client(Net::Datagram::TCP);
 
-    std::string delimiter = "\n";
+    std::string delimiter = ".";
     Net::Protocol protocol(delimiter);
 
     try {
-        client.setConnection("localhost", "6667");
+        client.setConnection("localhost", "8080");
         client.connectToServer();
         std::cout << "Connected.\n";
 
         while (true) {
             if (protocol.empty()) {
-                std::cin >> input;
-                client.sendMessage(input);
+                while (true) {
+                    std::getline(std::cin, input);
+                    client.sendMessage(input);
+                    if (input.find(delimiter) != std::string::npos) break;
+                }
             }
-            client.receiveMessage(protocol);
+            if (!client.receiveMessage(protocol)) break;
             protocol.front();
             protocol.pop();
             std::cout << "RECV: " << protocol.getCurrentMessage() << std::endl;
