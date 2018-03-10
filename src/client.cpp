@@ -13,7 +13,6 @@ int main() {
     try {
         client.setConnection("localhost", "8080");
         client.connectToServer();
-        std::cout << "Connected.\n";
 
         while (true) {
             if (protocol.empty()) {
@@ -26,7 +25,7 @@ int main() {
             if (!client.receiveMessage(protocol)) break;
             protocol.front();
             protocol.pop();
-            std::cout << "RECV: " << protocol.getCurrentMessage() << std::endl;
+            std::cout << "RECV: " << protocol.getCurrentMessage() << std::endl; // Serve
         }
 
     } catch (Net::NetworkException &e) {

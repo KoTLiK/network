@@ -38,7 +38,8 @@ namespace Net {
     };
 
 
-    struct Socket { // TODO not sure if it is working as intended
+    struct Socket {
+        Socket() : _length{ sizeof(_socket) } {}
         socklen_t& length() { return _length; }
         socklen_t* lengthPtr() { return &_length; }
         sockaddr* operator&() { return reinterpret_cast<sockaddr*>(&_socket); }
@@ -65,8 +66,8 @@ namespace Net {
         sa_family_t family() { return _socket.sa.sa_family; }
 
     private:
-        union { sockaddr sa; sockaddr_in si; sockaddr_in6 si6; } _socket;
-        socklen_t _length;
+        union { sockaddr sa; sockaddr_in si; sockaddr_in6 si6; } _socket{};
+        socklen_t _length{};
     };
 
 
@@ -95,7 +96,7 @@ namespace Net {
             }
         }
     public:
-        Protocol(std::string &delimiter) { setDelimiter(delimiter); }
+        explicit Protocol(std::string &delimiter) { setDelimiter(delimiter); }
         Protocol(std::string &delimiter, size_t length) { setDelimiter(delimiter, length); }
         Protocol(const char * delimiter, size_t length) { setDelimiter(delimiter, length); }
 
@@ -117,8 +118,16 @@ namespace Net {
         }
 
         std::string getCurrentMessage() const { return currentMessage; }
-        std::string front() { return (currentMessage = container.front()); }
-        void pop() { container.pop(); }
+
+        std::string front() {
+            currentMessage = container.empty() ? "" : container.front();
+            return currentMessage;
+        }
+
+        void pop() {
+            if (!container.empty())
+                container.pop();
+        }
     };
 
 
@@ -134,6 +143,7 @@ namespace Net {
         ~Network() { close(socketDescriptor); delete [] buffer; }
 
         virtual void sendMessage(const std::string &message, int socket) const {
+            if (message.empty()) return;
             if (send(socket, message.c_str(), message.size(), 0) < 0)
                 throw NetworkException("Cannot send message.");
         }
@@ -145,7 +155,7 @@ namespace Net {
                     bzero(buffer, bufferSize + 1);
                     i = static_cast<int>(recv(socket, buffer, bufferSize, 0));
                     if (i == 0) break;
-                    else if (i < 0) throw NetworkException("Ooops. Receive goes wrong." + std::string(strerror(errno)));
+                    else if (i < 0) throw NetworkException("Ooops. Receive goes wrong. " + std::string(strerror(errno)));
                     else if (protocol.checkAndAppend(buffer, static_cast<unsigned>(i))) break;
                 }
             }
@@ -155,15 +165,16 @@ namespace Net {
 
         static std::string getCurrentIP(const int descriptor) {
             Socket socket{};
-            std::string addr;
 
             if (getsockname(descriptor, &socket, socket.lengthPtr()) != 0)
                 throw NetworkException("Cannot resolve my own address.");
 
-            addr.reserve(socket.addrLength());
-            if (inet_ntop(socket.family(), socket.addr(), &addr[0], socket.addrLength()) == nullptr)
+            char addr[socket.addrLength()];
+
+            if (inet_ntop(socket.family(), socket.addr(), addr, socket.addrLength()) == nullptr)
                 throw NetworkException("Unable to convert my binary name.");
-            return addr;
+
+            return std::string(addr);
         }
 
         Datagram getDatagram() const { return datagram; }
@@ -172,22 +183,20 @@ namespace Net {
 
     class Server : public Network {
     private:
-        //Socket server{}, client{};
-        struct sockaddr_in6 server, client;
-        socklen_t length;
+        Socket server{}, client{};
     public:
-        explicit Server(Datagram d, unsigned bufferSize = Net::BUFFER_SIZE) : Network(d, bufferSize), length{sizeof(client)} {}
+        explicit Server(Datagram d, unsigned bufferSize = Net::BUFFER_SIZE) : Network(d, bufferSize) {}
 
         void start(uint16_t port) {
             if ((socketDescriptor = socket(PF_INET6, static_cast<int>(datagram), 0)) < 0)
                 throw NetworkException("The socket cannot be created.");
 
-            bzero(&server, sizeof(server));
-            server.sin6_family = AF_INET6;
-            server.sin6_addr = in6addr_any;
-            server.sin6_port = htons(port);
+            bzero(&server, server.length());
+            server.ipv6().sin6_family = AF_INET6;
+            server.ipv6().sin6_addr = in6addr_any;
+            server.ipv6().sin6_port = htons(port);
 
-            if (bind(socketDescriptor, (struct sockaddr*)&server, sizeof(server)) < 0)
+            if (bind(socketDescriptor, &server, server.length()) < 0)
                 throw NetworkException("Cannot bind...not enough mana.");
         }
 
@@ -197,19 +206,20 @@ namespace Net {
         }
 
         int openConnection() {
-            if ((connection = accept(socketDescriptor, (struct sockaddr*)&client, &length)) < 0)
+            if ((connection = accept(socketDescriptor, &client, client.lengthPtr())) < 0)
                 throw NetworkException("Challenge NOT accepted...nor the connection...");
             return connection;
         }
 
         void stop() const { close(socketDescriptor); }
-        int getServerSocket() const { return socketDescriptor; }
-        int getConnectionSocket() const { return connection; }
+        int getServerSocketDescriptor() const { return socketDescriptor; }
+        int getConnectionSocketDescriptor() const { return connection; }
         void closeConnection(int socket) const { close(socket); }
         void closeConnection() const { closeConnection(connection); }
 
         void sendToMessage(const std::string &message, int socket) {
-            if (sendto(socket, message.c_str(), message.size(), 0, (struct sockaddr*)&client, length) < 0)
+            if (message.empty()) return;
+            if (sendto(socket, message.c_str(), message.size(), 0, &client, client.length()) < 0)
                 throw NetworkException("Cannot send message.");
         }
 
@@ -224,9 +234,9 @@ namespace Net {
             if (protocol.empty()) {
                 while (true) {
                     bzero(buffer, bufferSize + 1);
-                    i = static_cast<int>(recvfrom(socket, buffer, bufferSize, 0, (struct sockaddr*)&client, &length));
+                    i = static_cast<int>(recvfrom(socket, buffer, bufferSize, 0, &client, client.lengthPtr()));
                     if (i == 0) break;
-                    else if (i < 0) throw NetworkException("Ooops. Receive goes wrong.");
+                    else if (i < 0) throw NetworkException("Ooops. Receive goes wrong. " + std::string(strerror(errno)));
                     else if (protocol.checkAndAppend(buffer, static_cast<unsigned>(i))) break;
                 }
             }
@@ -237,12 +247,12 @@ namespace Net {
         bool receiveMessage(Protocol &protocol) {
             if (datagram == Datagram::TCP)
                 return Network::receiveMessage(protocol, connection);
-            else return receiveFromMessage(protocol, socketDescriptor); // TODO socketDescriptor is correct ?
+            else return receiveFromMessage(protocol, socketDescriptor);
         }
 
         void sendMessage(const std::string &message, int socket) const override { Network::sendMessage(message, socket); }
         bool receiveMessage(Protocol &protocol, int socket) override { return Network::receiveMessage(protocol, socket); }
-        const sockaddr_in6 *getClient() const { return &client; }
+        Socket getClient() const { return client; }
     };
 
 
