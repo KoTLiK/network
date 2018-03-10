@@ -27,14 +27,30 @@ namespace Net {
         UDP = SOCK_DGRAM
     };
 
+    enum class Error {
+        SEND,
+        RECV,
+        BIND,
+        SOCKET,
+        LISTEN,
+        ACCEPT,
+        ADDR_INFO,
+        FAMILY,
+        CONNECT,
+        RESOLVE,
+        CONVERT
+    };
 
     class NetworkException: public std::exception {
     private:
         const std::string s;
+        const Error e{};
     public:
         explicit NetworkException(std::string e) throw(): s{std::move(e)} {}
+        NetworkException(Error error, std::string e) throw(): e{error}, s{std::move(e)} {}
         ~NetworkException() throw() override = default;
         const char * what() const throw() override { return s.c_str(); }
+        const Error which() const throw() { return e; }
     };
 
 
@@ -52,7 +68,7 @@ namespace Net {
             switch (family()) {
                 case AF_INET: return &_socket.si.sin_addr;
                 case AF_INET6: return &_socket.si6.sin6_addr;
-                default: throw NetworkException("Oh crap!");
+                default: throw NetworkException(Error::FAMILY, "Oh crap!");
             }
         }
 
@@ -60,7 +76,7 @@ namespace Net {
             switch (family()) {
                 case AF_INET: return INET_ADDRSTRLEN;
                 case AF_INET6: return INET6_ADDRSTRLEN;
-                default: throw NetworkException("Oh crap!");
+                default: throw NetworkException(Error::FAMILY, "Oh crap!");
             }
         }
         sa_family_t family() { return _socket.sa.sa_family; }
@@ -145,7 +161,7 @@ namespace Net {
         virtual void sendMessage(const std::string &message, int socket) const {
             if (message.empty()) return;
             if (send(socket, message.c_str(), message.size(), 0) < 0)
-                throw NetworkException("Cannot send message.");
+                throw NetworkException(Error::SEND, "Cannot send message. " + std::string(strerror(errno)));
         }
 
         virtual bool receiveMessage(Protocol &protocol, int socket) {
@@ -155,7 +171,7 @@ namespace Net {
                     bzero(buffer, bufferSize + 1);
                     i = static_cast<int>(recv(socket, buffer, bufferSize, 0));
                     if (i == 0) break;
-                    else if (i < 0) throw NetworkException("Ooops. Receive goes wrong. " + std::string(strerror(errno)));
+                    else if (i < 0) throw NetworkException(Error::RECV, "Ooops. Receive goes wrong. " + std::string(strerror(errno)));
                     else if (protocol.checkAndAppend(buffer, static_cast<unsigned>(i))) break;
                 }
             }
@@ -167,12 +183,12 @@ namespace Net {
             Socket socket{};
 
             if (getsockname(descriptor, &socket, socket.lengthPtr()) != 0)
-                throw NetworkException("Cannot resolve my own address.");
+                throw NetworkException(Error::RESOLVE, "Cannot resolve my own address.");
 
             char addr[socket.addrLength()];
 
             if (inet_ntop(socket.family(), socket.addr(), addr, socket.addrLength()) == nullptr)
-                throw NetworkException("Unable to convert my binary name.");
+                throw NetworkException(Error::CONVERT, "Unable to convert my binary name.");
 
             return std::string(addr);
         }
@@ -189,7 +205,7 @@ namespace Net {
 
         void start(uint16_t port) {
             if ((socketDescriptor = socket(PF_INET6, static_cast<int>(datagram), 0)) < 0)
-                throw NetworkException("The socket cannot be created.");
+                throw NetworkException(Error::SOCKET, "The socket cannot be created.");
 
             bzero(&server, server.length());
             server.ipv6().sin6_family = AF_INET6;
@@ -197,17 +213,17 @@ namespace Net {
             server.ipv6().sin6_port = htons(port);
 
             if (bind(socketDescriptor, &server, server.length()) < 0)
-                throw NetworkException("Cannot bind...not enough mana.");
+                throw NetworkException(Error::BIND, "Cannot bind...not enough mana.");
         }
 
         void setListen(const int listenQueue) const {
             if (listen(socketDescriptor, listenQueue) < 0)
-                throw NetworkException("I can't hear yooou...");
+                throw NetworkException(Error::LISTEN, "I can't hear yooou...");
         }
 
         int openConnection() {
             if ((connection = accept(socketDescriptor, &client, client.lengthPtr())) < 0)
-                throw NetworkException("Challenge NOT accepted...nor the connection...");
+                throw NetworkException(Error::ACCEPT, "Challenge NOT accepted...nor the connection...");
             return connection;
         }
 
@@ -220,7 +236,7 @@ namespace Net {
         void sendToMessage(const std::string &message, int socket) {
             if (message.empty()) return;
             if (sendto(socket, message.c_str(), message.size(), 0, &client, client.length()) < 0)
-                throw NetworkException("Cannot send message.");
+                throw NetworkException(Error::SEND, "Cannot send message. " + std::string(strerror(errno)));
         }
 
         void sendMessage(const std::string &message) {
@@ -236,7 +252,7 @@ namespace Net {
                     bzero(buffer, bufferSize + 1);
                     i = static_cast<int>(recvfrom(socket, buffer, bufferSize, 0, &client, client.lengthPtr()));
                     if (i == 0) break;
-                    else if (i < 0) throw NetworkException("Ooops. Receive goes wrong. " + std::string(strerror(errno)));
+                    else if (i < 0) throw NetworkException(Error::RECV, "Ooops. Receive goes wrong. " + std::string(strerror(errno)));
                     else if (protocol.checkAndAppend(buffer, static_cast<unsigned>(i))) break;
                 }
             }
@@ -271,7 +287,7 @@ namespace Net {
             hints.ai_protocol = 0;                           /* Any protocol */
 
             if ((error = getaddrinfo(server_ip.c_str(), port.c_str(), &hints, &result)) != 0)
-                throw NetworkException(gai_strerror(error));
+                throw NetworkException(Error::ADDR_INFO, gai_strerror(error));
         }
 
         void connectToServer() {
@@ -286,8 +302,8 @@ namespace Net {
 
             if (rp == nullptr) {
                 if (datagram == Datagram::UDP)
-                    throw NetworkException("UDP Service is unavailable.");
-                else throw NetworkException("Cannot connect to the server.");
+                    throw NetworkException(Error::CONNECT, "UDP Service is unavailable.");
+                else throw NetworkException(Error::CONNECT, "Cannot connect to the server.");
             }
 
             freeaddrinfo(result); // Free memory
