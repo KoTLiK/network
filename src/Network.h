@@ -218,13 +218,13 @@ public:
 };
 
 class Server : public Network {
+    Socket server, client;
+
+public:
     using base = Network;
     using base::receiveMessage;
     using base::sendMessage;
 
-    Socket server, client;
-
-public:
     explicit Server(Datagram d, unsigned bufferSize = Net::BUFFER_SIZE)
         : Network(d, bufferSize) {}
 
@@ -301,14 +301,14 @@ public:
 };
 
 class Client : public Network {
-    using base = Network;
-    using base::receiveMessage;
-    using base::sendMessage;
-
     struct addrinfo hints;
     struct addrinfo* result;
 
 public:
+    using base = Network;
+    using base::receiveMessage;
+    using base::sendMessage;
+
     explicit Client(Datagram d, unsigned bufferSize = BUFFER_SIZE)
         : Network(d, bufferSize) {}
 
@@ -344,9 +344,11 @@ public:
     }
 
     int getSocketDescriptor() const { return socketDescriptor; }
+
     void sendMessage(const std::string& message) const {
         sendMessage(message, socketDescriptor);
     }
+
     bool receiveMessage(Protocol& protocol) {
         return receiveMessage(protocol, socketDescriptor);
     }
