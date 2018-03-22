@@ -29,12 +29,13 @@ int main() {
                 std::cout << "Client connected.\n";
                 while (true) {
                     try {
-                        if (!server.receiveMessage(protocol)) break;
+                        if (!server.receiveMessage(protocol))
+                            break;
                         protocol.front();
                         protocol.pop();
-                        std::cout << "RECV: " << protocol.getCurrentMessage() << std::endl;  // Serve
+                        std::cout << "RECV: " << protocol.getCurrentMessage() << std::endl; // Serve
                         server.sendMessage(protocol.getCurrentMessage());
-                    } catch (Net::NetworkException &e) {
+                    } catch (Net::NetworkException& e) {
                         std::cerr << e.what() << std::endl;
                         break;
                     }
@@ -45,18 +46,19 @@ int main() {
         } else { // Net::Datagram::UDP
             while (true) {
                 try {
-                    if (!server.receiveMessage(protocol)) break;
+                    if (!server.receiveMessage(protocol))
+                        break;
                     protocol.front();
                     protocol.pop();
-                    std::cout << "RECV: " << protocol.getCurrentMessage() << std::endl;  // Serve
+                    std::cout << "RECV: " << protocol.getCurrentMessage() << std::endl; // Serve
                     server.sendMessage(protocol.getCurrentMessage());
-                } catch (Net::NetworkException &e) {
+                } catch (Net::NetworkException& e) {
                     std::cerr << e.what() << std::endl;
                     break;
                 }
             }
         }
-    } catch (Net::NetworkException &e) {
+    } catch (Net::NetworkException& e) {
         std::cerr << e.what() << std::endl;
     }
 
