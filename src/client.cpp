@@ -19,19 +19,20 @@ int main() {
                 while (true) {
                     std::getline(std::cin, input);
                     client.sendMessage(input);
-                    if (input.find(delimiter) != std::string::npos) break;
+                    if (input.find(delimiter) != std::string::npos)
+                        break;
                 }
             }
-            if (!client.receiveMessage(protocol)) break;
+            if (!client.receiveMessage(protocol))
+                break;
             protocol.front();
             protocol.pop();
             std::cout << "RECV: " << protocol.getCurrentMessage() << std::endl; // Serve
         }
 
-    } catch (Net::NetworkException &e) {
+    } catch (Net::NetworkException& e) {
         std::cerr << e.what() << std::endl;
     }
-
 
     return 0;
 }
