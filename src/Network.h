@@ -170,7 +170,7 @@ protected:
 public:
     Network(Datagram d, unsigned bufferSize)
         : datagram{ d }, bufferSize{ bufferSize } { buffer = new char[bufferSize]; }
-    ~Network() {
+    virtual ~Network() {
         close(socketDescriptor);
         delete[] buffer;
     }
@@ -218,8 +218,11 @@ public:
 };
 
 class Server : public Network {
-private:
-    Socket server{}, client{};
+    using base = Network;
+    using base::receiveMessage;
+    using base::sendMessage;
+
+    Socket server, client;
 
 public:
     explicit Server(Datagram d, unsigned bufferSize = Net::BUFFER_SIZE)
@@ -264,7 +267,7 @@ public:
 
     void sendMessage(const std::string& message) {
         if (datagram == Datagram::TCP)
-            Network::sendMessage(message, connection);
+            sendMessage(message, connection);
         else
             sendToMessage(message, socketDescriptor);
     }
@@ -289,18 +292,19 @@ public:
 
     bool receiveMessage(Protocol& protocol) {
         if (datagram == Datagram::TCP)
-            return Network::receiveMessage(protocol, connection);
+            return receiveMessage(protocol, connection);
         else
             return receiveFromMessage(protocol, socketDescriptor);
     }
 
-    void sendMessage(const std::string& message, int socket) const override { Network::sendMessage(message, socket); }
-    bool receiveMessage(Protocol& protocol, int socket) override { return Network::receiveMessage(protocol, socket); }
     Socket getClient() const { return client; }
 };
 
 class Client : public Network {
-private:
+    using base = Network;
+    using base::receiveMessage;
+    using base::sendMessage;
+
     struct addrinfo hints;
     struct addrinfo* result;
 
@@ -340,9 +344,13 @@ public:
     }
 
     int getSocketDescriptor() const { return socketDescriptor; }
-    void sendMessage(const std::string& message) const { Network::sendMessage(message, socketDescriptor); }
-    bool receiveMessage(Protocol& protocol) { return Network::receiveMessage(protocol, socketDescriptor); }
+    void sendMessage(const std::string& message) const {
+        sendMessage(message, socketDescriptor);
+    }
+    bool receiveMessage(Protocol& protocol) {
+        return receiveMessage(protocol, socketDescriptor);
+    }
 };
 } // namespace Net
 
-#endif //NETWORK_NETWORK_H
+#endif // NETWORK_NETWORK_H
