@@ -41,19 +41,16 @@ enum class Error {
     CONVERT
 };
 
-class NetworkException : public std::exception {
+class NetworkException {
 private:
     const std::string s;
     const Error e{};
 
 public:
-    explicit NetworkException(std::string e) throw()
-        : s{ std::move(e) } {}
-    NetworkException(Error error, std::string e) throw()
-        : e{ error }, s{ std::move(e) } {}
-    ~NetworkException() throw() override = default;
-    const char* what() const throw() override { return s.c_str(); }
-    const Error which() const throw() { return e; }
+    NetworkException(Error error, std::string msg) : e{ error }, s{ std::move(msg) } {}
+    ~NetworkException() = default;
+    const char* what() const { return s.c_str(); }
+    const Error which() const { return e; }
 };
 
 struct Socket {
