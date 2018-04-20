@@ -43,14 +43,16 @@ enum class Error {
 
 class NetworkException : public std::exception {
 private:
-    const std::string s;
-    const Error e{};
+    std::string s;
+    Error e{};
 
 public:
-    NetworkException(Error error, std::string msg) : e{ error }, s{ std::move(msg) } {}
+    NetworkException(Error error, std::string msg) : e{error}, s{std::move(msg)} {}
+    NetworkException(const NetworkException& other) : e{other.e}, s{other.s} {}
+    NetworkException(NetworkException&& other) : e{other.e}, s{std::move(other.s)} {}
     ~NetworkException() override = default;
-    const char* what() const override { return s.c_str(); }
-    const Error which() const { return e; }
+    const char* what() const noexcept override { return s.c_str(); }
+    const Error which() const noexcept { return e; }
 };
 
 struct Socket {
@@ -105,7 +107,7 @@ protected:
     std::string package;
     std::string delimiter;
     std::string currentMessage;
-    unsigned long delimiterLength;
+    unsigned long delimiterLength{};
 
     bool checkAndAppend(const char* buffer, unsigned bytes) {
         package += std::string(buffer, bytes);
@@ -307,7 +309,7 @@ public:
     using base::sendMessage;
 
     explicit Client(Datagram d, unsigned bufferSize = BUFFER_SIZE)
-        : Network(d, bufferSize) {}
+        : hints{}, result{nullptr}, Network(d, bufferSize) {}
 
     void setConnection(const std::string& server_ip, const std::string& port) {
         bzero(&hints, sizeof(hints));
